@@ -1,0 +1,21 @@
+#doorbell configuration file
+
+[[doorbell]]
+    [[doorbell.frontdoor]]
+        [[doorbell.frontdoor.layers]]
+            [[doorbell.frontdoor.layers.layer1]]
+                type = "reolink"
+                user = "admin"
+                pass = "your father smelt of elderberries"
+                ping_interval = 16
+            [[doorbell.frontdoor.layers.layer2]]
+                type = "tcp"
+                host = "192.168.1.1"
+                port = 9000
+                connection_type = "client"
+        [[doorbell.frontdoor.relay]]
+            offset = 10
+            on_value = 11
+            off_value = 12
+            on_time = 5
+            device = "/dev/relay"
