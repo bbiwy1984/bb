@@ -13,13 +13,13 @@ There is a simple program (bb), that turn a relay on and off when somebody press
 
 ## Installation
 The following libraries are needed:
--Hidapi (operate relay);
--WolfSSL (certain cryptographic operations);
--Ivykis (asynchronous IO);
--Tomlc99 (parsing configuration files);
--Gstreamer (used for converting audio files to the right format, might go in future versions);
--Mxml (parsing and creation of XML messages used in the communication protocol);
--Wire-AVS
+- Hidapi (operate relay);
+- WolfSSL (certain cryptographic operations);
+- Ivykis (asynchronous IO);
+- Tomlc99 (parsing configuration files);
+- Gstreamer (used for converting audio files to the right format, might go in future versions);
+- Mxml (parsing and creation of XML messages used in the communication protocol);
+- Wire-AVS
 
 On Ubuntu Tomlc99 is not supported and has to be downloaded and installed from [here](https://github.com/cktan/tomlc99)
 
@@ -39,9 +39,9 @@ make install
 
 ## Usage
 If you decide to use wire, the following stepds need to be taken:
--Create an account for your doorbell;
--Create a channel with you and your doorbell in it;
--Send a message with the zcall client from Wire to the channel and make sure you receive it (this initializes the .zcall directory which is need by the lib).
+- Create an account for your doorbell;
+- Create a channel with you and your doorbell in it;
+- Send a message with the zcall client from Wire to the channel and make sure you receive it (this initializes the .zcall directory which is need by the lib).
 
 Using it is pretty straightforward
 bb -c <configuration_file> 
