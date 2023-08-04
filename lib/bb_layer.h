@@ -12,9 +12,14 @@
 
 struct doorbell
 {
+    char *ring_msg;
+    char *pir_msg;
+    char *mov_msg;
+
     struct bb_message_channel_top *bbmct;
     struct relay *r;
     struct av_data *avd;
+    struct wire_session *ws;
 };
 
 struct bb_message_channel
@@ -63,35 +68,12 @@ struct bb_message_channel_top
     struct iv_event_raw init_ev;
     struct iv_event_raw talk_ev;
     struct iv_event_raw login_ev;
+
+    //function we need to call inside the wire client
+     struct iv_event_raw wire_init_success_ev;
+     struct iv_event_raw wire_sent_success_ev;
+     struct iv_event_raw wire_deinit_success_ev;
+    
 };
 
-/*
-struct bb_layer
-{
-    ssize_t len_read;
-    ssize_t len_write;
-    char buf_read[BUFSIZE];
-    char buf_write[BUFSIZE];
-    void *layer_up;
-    void *layer_down;
-    ssize_t (*write_cf)(struct bb_layer *bbl);
-
-    void (*init)(struct bb_layer *bbl);
-    void (*deinit)(struct bb_layer *bbl);
-    void (*reconnect)(struct bb_layer *bbl);
-    void (*read_cb)(struct bb_layer *bbl);
-    void (*write_cb)(struct bb_layer *bbl);
-    void (*disconn_cb)(struct bb_layer *bbl);
-    void (*fatal_cb)(uint32_t error);
-    void *(*new_client_cb)(struct bb_layer *bbl);
-    void (*log_cb)(const char *, ...);
-    void (*init_success_cb)(struct bb_layer *bbl);
-};
-
-struct bb_layer_container
-{
-    struct bb_layer up;
-    struct bb_layer down;
-};
-*/
 #endif

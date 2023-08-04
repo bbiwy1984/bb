@@ -56,6 +56,20 @@ typedef uint64_t bb_ret;
 #define REO_STATE_NOT_SUPPORTED                     0x0B0000000
 #define REO_STATE_NOT_ENABLED                       0x0C0000000
 #define WIRE_LIBRE_INIT_FAIL                        0x100000000
+#define WIRE_AVS_INIT_FAIL                          0x200000000
+#define WIRE_ENGINE_INIT_FAIL                       0x300000000
+#define WIRE_DATACHANNEL_ENABLE_FAIL                0x400000000
+#define WIRE_CREATE_STORE_FAIL                      0x500000000
+#define WIRE_CRYPTOBOX_ALLOC_FAIL                   0x600000000
+#define WIRE_ENGINE_START_FAIL                      0x700000000
+#define WIRE_OPEN_USER_STORE_FAIL                   0x800000000
+#define WIRE_SOBJECT_STR_READ_FAIL                  0x900000000
+#define WIRE_WCALL_CREATE_FAIL                      0xA00000000
+#define WIRE_ENGINE_ALLOC_FAIL                      0xB00000000
+#define WIRE_READ_STRING_FROM_STORE_FAIL            0xC00000000
+#define WIRE_PROTOBUF_ENCODING_FAIL                 0xD00000000
+#define WIRE_SENDING_OTR_FAIL                       0xE00000000
+#define WIRE_OTR_READ_FAIL                          0xF00000000
 #define CONFIG_CANNOT_OPEN_FILE                     0x1000000000
 #define CONFIG_PARSING_ERROR                        0x2000000000
 #define CONFIG_CANNOT_FIND_DOORBELL_CONF            0x3000000000
@@ -69,20 +83,9 @@ typedef uint64_t bb_ret;
 #define CONFIG_TCP_CANNOT_BE_THE_TOP_LAYER          0xB000000000
 #define CONFIG_UNKNOWN_CONNECTION_TYPE              0xC000000000
 #define CONFIG_RELAY_UNSUPPORTED_OPTION             0xD000000000
+#define CONFIG_WIRE_UNSUPPORTED_OPTION              0xE000000000
 #define XML_CANT_FIND_ELEMENT                       0x10000000000
 #define XML_CANT_SET_TEXT                           0x20000000000
 #define FATAL                                       0xFFFFFFFFFFF
-
-/*
-struct bladiebla
-{
-    char in[BUFSIZE];
-    char out[BUFSIZE];
-    size_t in_len;
-    size_t out_len;
-    void (*write_func)(char *buf, size_t len);
-    void (*read_func)(char *buf, size_t len);
-};
-*/
 
 #endif

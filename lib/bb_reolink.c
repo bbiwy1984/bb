@@ -195,7 +195,7 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     memcpy(bbmc->buf_write, login_header, sizeof(login_header));
 
     //calculates the hash of the user
-    if ((rs->error = md5(rs->user, strlen(rs->user), hash)) != ALL_GOOD)
+    if ((rs->error = bb_md5(rs->user, strlen(rs->user), hash)) != ALL_GOOD)
     {
         iv_event_raw_post(&(bbmct->error_ev));
         return;
@@ -204,7 +204,7 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     //calculates the special reo md5 needed for authentication
     reo_md5(bbmc->buf_write + sizeof(login_header), hash);   
    
-    if ((rs->error = md5(rs->pass, strlen(rs->pass), hash)) != ALL_GOOD)
+    if ((rs->error = bb_md5(rs->pass, strlen(rs->pass), hash)) != ALL_GOOD)
     {
         iv_event_raw_post(&(bbmct->error_ev));
         return;
@@ -335,7 +335,7 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
     //because the above can still int wrap, we use snprintf
     //worst case, reply is malformed and we get an error
     snprintf(tmp_buf, sizeof(tmp_buf), "%s-%s", rp->nonce, rs->pass);
-    md5(tmp_buf, strlen(tmp_buf), hash);
+    bb_md5(tmp_buf, strlen(tmp_buf), hash);
     sprintf(rp->key, "%02X%02X%02X%02X%02X%02X%02X%02X", 
         (unsigned char)hash[0], (unsigned char)hash[1],
         (unsigned char)hash[2], (unsigned char)hash[3],
@@ -403,7 +403,7 @@ static void modern_login_write(struct bb_message_channel *bbmc)
     strcat(tmp_buf, rs->user);
     strcat(tmp_buf, rp->nonce);
     
-    if ((ret = md5(tmp_buf, strlen(tmp_buf), hash)) != ALL_GOOD)
+    if ((ret = bb_md5(tmp_buf, strlen(tmp_buf), hash)) != ALL_GOOD)
         goto out;
     
     reo_md5(hash_hex, hash);
@@ -418,7 +418,7 @@ static void modern_login_write(struct bb_message_channel *bbmc)
     strcat(tmp_buf, rs->pass);
     strcat(tmp_buf, rp->nonce);
      
-    if ((ret = md5(tmp_buf, strlen(tmp_buf), hash)) != ALL_GOOD)
+    if ((ret = bb_md5(tmp_buf, strlen(tmp_buf), hash)) != ALL_GOOD)
         goto out;
 
     reo_md5(hash_hex, hash);

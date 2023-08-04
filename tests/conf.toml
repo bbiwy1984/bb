@@ -2,6 +2,9 @@
 
 [[doorbell]]
     [[doorbell.frontdoor]]
+        ring_msg = "There is somebody at the door"
+        pir_msg = "Got a PIR alert"
+        mov_msg = "Movement detected"
         [[doorbell.frontdoor.layers]]
             [[doorbell.frontdoor.layers.layer1]]
                 type = "reolink"
@@ -19,3 +22,10 @@
             off_value = 12
             on_time = 5
             device = "/dev/relay"
+        [[doorbell.frontdoor.wire]]
+            username = "frontdoor@foo.bar"
+            password = "your mother was a hamster"
+            store_dir = "/home/user/.zcall/"
+            req_url = "https://prod-nginz-https.wire.com"
+            not_url = "https://prod-nginz-ssl.wire.com"
+

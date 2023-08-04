@@ -4,6 +4,7 @@
 #include <iv_thread.h>
 
 #include <bb_av.h>
+#include <bb_wire.h>
 #include <bb_config.h>
 #include <bb_reolink.h>
 
@@ -12,14 +13,24 @@ static void print_banner()
     fprintf(stderr, "Usage: ./bb -c config file\n");
 }
 
+static void wire_sent_success(void *object)
+{
+}
+
+static void wire_init_success(void *object)
+{
+}
+ 
+static void wire_deinit_success(void *object)
+{
+}
+
 static void relay_timer_expired(void *object)
 {
     bb_ret ret;
     struct relay *r;
     
     r = (struct relay*)object;
-
-    fprintf(stderr, "Turning off timer\n");    
 
     if ((ret = turn_relay_off(r)) != ALL_GOOD)
         fprintf(stderr, "Got error operating relay: 0x%lx\n", ret);
@@ -35,7 +46,7 @@ static void error_cb(void *object)
     bbmct = db->bbmct;
     rs = container_of(bbmct, struct reo_session, bbmct);
 
-    fprintf(stderr, "We got error: %ld\n", rs->error);
+    fprintf(stderr, "We got error: %lx\n", rs->error);
 }
 
 static void login_success_cb(void *object)
@@ -65,12 +76,23 @@ static void disconnect_cb(void *object)
 
 static void motion_detect_stop_cb(void *object)
 {
-    fprintf(stderr, "Object movement stopped\n");
 }
 
 static void motion_detect_start_cb(void *object)
 {
-    fprintf(stderr, "Detected object movement\n");
+     struct doorbell *db;
+ 
+     db = (struct doorbell*)object;
+ 
+     if (db->ws != NULL)
+     {
+         strncpy(db->ws->bbmct.bbmc.buf_write, db->mov_msg, 
+             sizeof(db->ws->bbmct.bbmc.buf_write));
+ 
+         db->ws->bbmct.bbmc.len_write = strlen(db->mov_msg);
+ 
+         iv_event_raw_post(&(db->ws->wire_send_msg_ev));
+     }
 }
 
 static void doorbell_press_cb(void *object)
@@ -84,7 +106,15 @@ static void doorbell_press_cb(void *object)
     if (iv_timer_registered(&(db->r->timer)) != 0)
         return;
 
-    fprintf(stderr, "Somebody pressed the doorbell, turning timer on\n");
+    if (db->ws != NULL)
+    {
+        strncpy(db->ws->bbmct.bbmc.buf_write, db->ring_msg, 
+            sizeof(db->ws->bbmct.bbmc.buf_write));
+
+        db->ws->bbmct.bbmc.len_write = strlen(db->ring_msg);
+
+        iv_event_raw_post(&(db->ws->wire_send_msg_ev));
+    }
 
     iv_validate_now();
 
@@ -99,7 +129,19 @@ static void doorbell_press_cb(void *object)
 
 static void pir_alarm_cb(void *object)
 {
-    fprintf(stderr, "PIR alarm, somebody is at your door\n");
+     struct doorbell *db;
+
+     db = (struct doorbell*)object;
+ 
+     if (db->ws != NULL)
+     {
+         strncpy(db->ws->bbmct.bbmc.buf_write, db->pir_msg, 
+             sizeof(db->ws->bbmct.bbmc.buf_write));
+ 
+         db->ws->bbmct.bbmc.len_write = strlen(db->pir_msg);
+ 
+         iv_event_raw_post(&(db->ws->wire_send_msg_ev));
+     }
 }
 
 void start_reo_thread(void *object)
@@ -129,6 +171,34 @@ void start_reo_thread(void *object)
     reo_init((void*)bbmc->bbmc_down);
     
     iv_main();
+}
+
+void start_wire_thread(void *object)
+{
+    struct doorbell *db;
+
+    db = (struct doorbell*)object;
+
+    iv_init();
+    IV_EVENT_RAW_INIT(&(db->ws->wire_init_ev));
+    IV_EVENT_RAW_INIT(&(db->ws->wire_deinit_ev));
+    IV_EVENT_RAW_INIT(&(db->ws->wire_send_msg_ev));
+
+    db->ws->wire_init_ev.cookie = db->ws;
+    db->ws->wire_deinit_ev.cookie = db->ws;
+    db->ws->wire_init_ev.handler = wire_init;
+    db->ws->wire_deinit_ev.handler = wire_deinit;
+    db->ws->wire_send_msg_ev.cookie = db->ws;
+    db->ws->wire_send_msg_ev.handler = wire_send_msg;
+
+    iv_event_raw_register(&(db->ws->wire_init_ev));
+    iv_event_raw_register(&(db->ws->wire_deinit_ev));
+    iv_event_raw_register(&(db->ws->wire_send_msg_ev));
+
+    wire_init(db->ws);
+
+    //cleaning up
+    iv_deinit();
 }
 
 int main(int argc, char *argv[])
@@ -220,6 +290,30 @@ int main(int argc, char *argv[])
             IV_TIMER_INIT(&(db[i].r->timer));
             db[i].r->timer.cookie = db[i].r;
             db[i].r->timer.handler = relay_timer_expired;
+        }
+
+        if (db[i].ws != NULL)
+        {
+            IV_EVENT_RAW_INIT(&(db[i].ws->bbmct.wire_init_success_ev));
+            IV_EVENT_RAW_INIT(&(db[i].ws->bbmct.wire_sent_success_ev));
+            IV_EVENT_RAW_INIT(&(db[i].ws->bbmct.wire_deinit_success_ev));
+
+            db[i].ws->bbmct.wire_init_success_ev.cookie = &db[i];
+            db[i].ws->bbmct.wire_deinit_success_ev.cookie = &db[i];
+            db[i].ws->bbmct.wire_init_success_ev.handler = wire_init_success;
+            db[i].ws->bbmct.wire_deinit_success_ev.handler = 
+                wire_deinit_success;
+            db[i].ws->bbmct.wire_sent_success_ev.cookie = &db[i];
+            db[i].ws->bbmct.wire_sent_success_ev.handler = wire_sent_success;
+            db[i].ws->bbmct.error_ev.cookie = &db[i];
+            db[i].ws->bbmct.error_ev.handler = error_cb;
+
+            iv_event_raw_register(&(db[i].ws->bbmct.error_ev));
+            iv_event_raw_register(&(db[i].ws->bbmct.wire_init_success_ev));
+            iv_event_raw_register(&(db[i].ws->bbmct.wire_sent_success_ev));
+            iv_event_raw_register(&(db[i].ws->bbmct.wire_deinit_success_ev));
+
+            iv_thread_create("wire_protocol", start_wire_thread, (void*)&db[i]);
         }
 
         iv_thread_create("reo_protocol", start_reo_thread, (void*)&db[i]);
