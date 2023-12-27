@@ -3,6 +3,7 @@
 #include <toml.h>
 
 #include <bb_tcp.h>
+#include <bb_wire.h>
 #include <bb_common.h>
 #include <bb_config.h>
 #include <bb_reolink.h>
@@ -217,7 +218,7 @@ static bb_ret parse_relay(toml_array_t *a, struct doorbell *db)
             r->device = str.u.s;
         }
         else
-            return CONFIG_RELAY_UNSUPPORTED_OPTION;
+            return CONFIG_REOLINK_UNSUPPORTED_OPTION;
     }    
 
     db->r = r;
@@ -227,56 +228,62 @@ static bb_ret parse_relay(toml_array_t *a, struct doorbell *db)
 
 static bb_ret parse_wire(toml_array_t *a, struct doorbell *db)
 {
-     int i;
-     char *s;
-     toml_datum_t str;
-     toml_table_t *t;
-     struct wire_session *ws;
+    int i;
+    char *s;
+    toml_datum_t str;
+    toml_table_t *t;
+    struct wire_session *ws;
+
+    t = toml_table_at(a, 0);
+
+    if ((ws = malloc(sizeof(*ws))) == NULL)
+        return NO_MORE_MEMORY;
+    
+    memset(ws, 0x00, sizeof(*ws));
+
+    for (i = 0; i < toml_table_nkval(t); i++)
+    {
+        s = (char*)toml_key_in(t, i);
+
+        if (strncmp(s, "username", strlen("username")) == 0)
+        { 
+            str = toml_string_in(t, s); 
+            ws->user = str.u.s;
+        }
+        else if (strncmp(s, "password", strlen("password")) == 0)
+        { 
+            str = toml_string_in(t, s); 
+            ws->pass = str.u.s;
+        }
+        else if (strncmp(s, "store_dir", strlen("store_dir")) == 0)
+        {
+            str = toml_string_in(t, s);
+            ws->store_dir = str.u.s;
+        }
+        else if (strncmp(s, "req_url", strlen("req_url")) == 0)
+        {
+            str = toml_string_in(t, s);
+            ws->req_url = str.u.s;
+        }
+        else if (strncmp(s, "not_url", strlen("not_url")) == 0)
+        {
+            str = toml_string_in(t, s);
+            ws->not_url = str.u.s;
+        }
+        else if (strncmp(s, "storage_dir", strlen("storage_dir")) == 0)
+        {
+            str = toml_string_in(t, s);
+            ws->storage_dir = str.u.s;
+        }
+        else
+            return CONFIG_WIRE_UNSUPPORTED_OPTION;
+    }    
+
+    db->ws = ws;
  
-     t = toml_table_at(a, 0);
- 
-     if ((ws = malloc(sizeof(*ws))) == NULL)
-         return NO_MORE_MEMORY;
-     
-     memset(ws, 0x00, sizeof(*ws));
- 
-     for (i = 0; i < toml_table_nkval(t); i++)
-     {
-         s = (char*)toml_key_in(t, i);
- 
-         if (strncmp(s, "username", strlen("username")) == 0)
-         { 
-             str = toml_string_in(t, s); 
-             ws->user = str.u.s;
-         }
-         else if (strncmp(s, "password", strlen("password")) == 0)
-         { 
-             str = toml_string_in(t, s); 
-             ws->pass = str.u.s;
-         }
-         else if (strncmp(s, "store_dir", strlen("store_dir")) == 0)
-         {
-             str = toml_string_in(t, s);
-             ws->store_dir = str.u.s;
-         }
-         else if (strncmp(s, "req_url", strlen("req_url")) == 0)
-         {
-             str = toml_string_in(t, s);
-             ws->req_url = str.u.s;
-         }
-         else if (strncmp(s, "not_url", strlen("not_url")) == 0)
-         {
-             str = toml_string_in(t, s);
-             ws->not_url = str.u.s;
-         }
-         else
-             return CONFIG_WIRE_UNSUPPORTED_OPTION;
-     }    
- 
-     db->ws = ws;
-  
-     return ALL_GOOD;
+    return ALL_GOOD;
 }
+
 
 static bb_ret parse_door(toml_array_t *door, struct doorbell *db)
 {
@@ -285,16 +292,15 @@ static bb_ret parse_door(toml_array_t *door, struct doorbell *db)
     char *key;
 
     bb_ret ret;
-    toml_table_t *t;
-    toml_array_t *a;   
     toml_datum_t str;
+    toml_table_t *t;
+    toml_array_t *a;
 
     t = toml_table_at(door, 0);
 
     for (i = 0; 0 != (key = toml_key_in(t,i)); i++)
     {
         a = toml_array_in(t, toml_key_in(t, i));
-
         if (strncmp(toml_key_in(t, i), "layers", strlen("layers")) == 0)
         {
             if ((ret = parse_layer(a, db)) != ALL_GOOD)
@@ -409,3 +415,7 @@ out:
     return ret;    
 }
 
+void conf_cleanup(int n, struct doorbell *db)
+{
+
+}

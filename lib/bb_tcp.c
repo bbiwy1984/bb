@@ -1,3 +1,6 @@
+#include <bb_tcp.h>
+#include <bb_errors.h>
+
 #include <iv.h>
 #include <stdio.h>
 #include <errno.h>
@@ -9,9 +12,6 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-#include <bb_tcp.h>
-#include <bb_errors.h>
 
 inline static void tcp_reset_timer(struct bb_message_channel *bbmc)
 {
@@ -101,6 +101,8 @@ ssize_t tcp_write(struct bb_message_channel *bbmc)
 
 static void tcp_read(void *object)
 {
+    size_t to_read;
+    ssize_t len_read;
     struct tcp_struct *ts;
     struct bb_message_channel *bbmc;
     
@@ -113,11 +115,12 @@ static void tcp_read(void *object)
         goto out;
 
     //only read if buf is empty
-    if (bbmc->len_read == 0)
+    if (bbmc->len_read == 0 || bbmc->to_read != 0)
     {
-        bbmc->len_read = read(ts->fd.fd, bbmc->buf_read,sizeof(bbmc->buf_read));
-
-        if (bbmc->len_read <= 0)
+        to_read = bbmc->to_read > 0 ? bbmc->to_read : sizeof(bbmc->buf_read);
+        len_read = read(ts->fd.fd, bbmc->buf_read + bbmc->len_read, to_read);
+            
+        if (len_read <= 0)
         {
             if (errno == EAGAIN)
                 goto out;
@@ -127,9 +130,12 @@ static void tcp_read(void *object)
                 return;
             }
         }
+        
+        bbmc->to_read -= len_read;
+        bbmc->len_read += len_read;
+
         bbmc->read_cb(bbmc);
     }
-    //if we are here we have something in the buffer
 out:
     //we don't set a time out for when we are the client
     if (ts->type == SERVER)
@@ -283,7 +289,7 @@ void tcp_init(struct bb_message_channel *bbmc)
     memset(&hints, 0x00, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
-   
+
     if (getaddrinfo(ts->host, NULL, &hints, &res) != 0)
     {
         bbmc->error_cb(bbmc, CANT_LOOKUP_HOSTNAME);

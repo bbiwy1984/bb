@@ -25,6 +25,8 @@ struct doorbell
 struct bb_message_channel
 {
     ssize_t len_read;
+    ssize_t to_read;
+
     volatile ssize_t len_write;
     char buf_read[BUFSIZE];
     char buf_write[BUFSIZE];
@@ -69,11 +71,10 @@ struct bb_message_channel_top
     struct iv_event_raw talk_ev;
     struct iv_event_raw login_ev;
 
-    //function we need to call inside the wire client
-     struct iv_event_raw wire_init_success_ev;
-     struct iv_event_raw wire_sent_success_ev;
-     struct iv_event_raw wire_deinit_success_ev;
-    
+    //function we can get from wire
+    struct iv_event_raw wire_init_success_ev;
+    struct iv_event_raw wire_sent_success_ev;
+    struct iv_event_raw wire_deinit_success_ev;
 };
 
 #endif

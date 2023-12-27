@@ -71,6 +71,8 @@
 #define ENC_OFFSET_LEN              4
 #define STATUS_CODE_LEN             2
 #define LEGACY_MSG_CLASS_REP_LEN    2 
+#define PAYLOAD_LEN_OFFSET          8
+#define PAYLOAD_LEN_SIZE            4
 
 //state machine related defines we use these numbers for bitwise operations
 //this way we can easily see if we can switch to a state or not

@@ -1,0 +1,4 @@
+0.3 Added support to send images via wire
+0.2.1 Bugfix: Untested(Support packet fragmention)
+0.2 Added Wire message alert support when a doorbell event occurs
+0.1 Initial commit

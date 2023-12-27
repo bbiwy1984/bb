@@ -32,7 +32,7 @@ aclocal
 autoconf
 automake --add-missing
 autoreconf
-./configure CPPFLAGS="-DHAVE_PROTOBUF -DHAVE_CRYPTOBOX -DHAVE_READLINE" CFLAGS="-I/your_location/wire-avs/include -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/your_location/wire-avs/contrib/re/include/ -I/your_location/wire-avs/src/" LDFLAGS="-L/usr/local/lib64/ -L/your_location/wire-avs/build/linux-x86_64/lib/ -lavscore -ldl -lz -lpthread -lresolv -lre -lresolv -lrew -lre -lresolv -L/your_location/wire-avs/contrib/webrtc/20230222.69/lib/linux-x86_64 -lwebrtc -lcryptobox -lprotobuf-c  -lsodium -lreadline -lpthread -lprotobuf-c  -lcryptobox -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender -ldl -lrt -lm -lstdc++ -lpthread -lglib-2.0 -latomic "
+./configure CPPFLAGS="-DHAVE_PROTOBUF -DHAVE_CRYPTOBOX -DHAVE_READLINE" CFLAGS="-I/your_location/wire-avs/include -I/usr/include/gstreamer-1.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/your_location/wire-avs/contrib/re/include/ -I/your_location/wire-avs/src/ -I/your_location/wire-avs/src/protobuf/" LDFLAGS="-L/usr/local/lib64/ -L/your_location/wire-avs/build/linux-x86_64/lib/ -lavscore -ldl -lz -lpthread -lresolv -lre -lresolv -lrew -lre -lresolv -L/your_location/wire-avs/contrib/webrtc/20230222.69/lib/linux-x86_64 -lwebrtc -lcryptobox -lprotobuf-c  -lsodium -lreadline -lpthread -lprotobuf-c  -lcryptobox -lX11 -lXcomposite -lXdamage -lXext -lXfixes -lXrender -ldl -lrt -lm -lstdc++ -lpthread -lglib-2.0 -latomic "
 make
 make install
 ```
@@ -50,7 +50,7 @@ A sample configuration file can be found in the test/ directory
 
 ## Roadmap
 - [x] Add support to send messages with the Wire client
-- [ ] Add support to send images with the Wire client
+- [x] Add support to send images with the Wire client
 - [ ] When a doorbell press is detected, send an image via Wire in a (group) chat
 - [ ] Download the video stream via RTMP to a file as Reolink devices work best with RTMP
 - [ ] Add support to send videos with the Wire client

@@ -1,6 +1,6 @@
-AM_CPPFLAGS = -Wcpp -g `pkg-config --cflags-only-I gstreamer-1.0 ivykis gstreamer-1.0 gstreamer-app-1.0 ivykis hidapi-hidraw wolfssl mxml`
-AM_LDFLAGS = `pkg-config --libs gstreamer-1.0 gstreamer-app-1.0 ivykis gstreamer-1.0 ivykis hidapi-hidraw wolfssl mxml`
-AM_LDFLAGS += -ltoml 
+AM_CPPFLAGS = -Wcpp -g -fPIC `pkg-config --cflags-only-I gstreamer-1.0 ivykis gstreamer-1.0 gstreamer-app-1.0 ivykis hidapi-hidraw wolfssl mxml libcurl libmagic`
+AM_LDFLAGS = `pkg-config --libs gstreamer-1.0 gstreamer-app-1.0 ivykis gstreamer-1.0 ivykis hidapi-hidraw wolfssl mxml libcurl libmagic` 
+AM_LDFLAGS += -ltoml -lpng -ljpeg -lgd
 
 lib_LTLIBRARIES = libbb.la 
 

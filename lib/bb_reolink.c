@@ -11,6 +11,8 @@
 #include <bb_reolink.h>
 #include <bb_reolink_priv.h>
 
+#define RESET_READ(bbmc) {bbmc->len_read = 0; bbmc->to_read = 0; memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));}
+
 //yes we assume only 1 doorbell per thread
 static struct iv_avl_tree reo_avl;
 
@@ -148,8 +150,23 @@ void reo_read(struct bb_message_channel *bbmc)
 
     if (memcmp(bbmc->buf_read, header_magic, sizeof(header_magic)) != 0)
     {
+        int i;
+        fprintf(stderr, "got len: %ld\n", bbmc->len_read);
+        for (i = 0; i < bbmc->len_read; i+=8)
+        {
+            fprintf(stderr, "0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+                (unsigned char)bbmc->buf_read[i],
+                (unsigned char)bbmc->buf_read[i+1],
+                (unsigned char)bbmc->buf_read[i+2],
+                (unsigned char)bbmc->buf_read[i+3],
+                (unsigned char)bbmc->buf_read[i+4],
+                (unsigned char)bbmc->buf_read[i+5],
+                (unsigned char)bbmc->buf_read[i+6],
+                (unsigned char)bbmc->buf_read[i+7]);
+        }
         rs->error= REO_MAGIC_WRONG;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
 
@@ -158,6 +175,7 @@ void reo_read(struct bb_message_channel *bbmc)
     {
         rs->error = REO_STATE_NOT_SUPPORTED;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
     
@@ -168,6 +186,7 @@ void reo_read(struct bb_message_channel *bbmc)
     {
         rs->error = REO_STATE_NOT_ENABLED;
         iv_event_raw_post(&bbmct->error_ev);
+        RESET_READ(bbmc);
         return;
     }
 
@@ -198,6 +217,7 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     if ((rs->error = bb_md5(rs->user, strlen(rs->user), hash)) != ALL_GOOD)
     {
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
     
@@ -207,6 +227,7 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     if ((rs->error = bb_md5(rs->pass, strlen(rs->pass), hash)) != ALL_GOOD)
     {
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
     
@@ -219,48 +240,115 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     reo_reset_ping_timer(bbmc);
 }
 
-static bb_ret check_legacy_header(char *buf, ssize_t len, int *payload_len)
+/* If we receive 2 reolink messages right after we "delete" the first
+ */
+static bb_ret adjust_buf(struct bb_message_channel *bbmc, size_t header_size)
+{
+    uint32_t payload_len;
+
+    memcpy(&payload_len, bbmc->buf_read + PAYLOAD_LEN_OFFSET, PAYLOAD_LEN_SIZE);
+
+    payload_len += header_size;    
+
+    if (payload_len < bbmc->len_read)
+    {
+        fprintf(stderr, "moving payload, payload_len: %d, len_read: %ld header_size: %ld\n",
+            payload_len, bbmc->len_read, header_size);
+        memmove(bbmc->buf_read, bbmc->buf_read + payload_len, 
+            bbmc->len_read - payload_len);
+
+        bbmc->len_read -= payload_len;
+        return REO_BUF_ADJUSTED;
+    }
+    
+    return ALL_GOOD;
+}
+
+static bb_ret fragmentation_check(struct bb_message_channel *bbmc, 
+    int header_len, uint32_t *payload_len)
+{
+    bb_ret ret;
+
+    ret = REO_FRAGMENTED;
+
+    fprintf(stderr, "fragmentation check, header_len: %d, len_read: %ld\n", header_len, bbmc->len_read);
+
+    if (header_len > bbmc->len_read)
+    {
+        bbmc->to_read = header_len - bbmc->len_read;
+        goto out;
+    }
+
+    memcpy(payload_len, bbmc->buf_read + PAYLOAD_LEN_OFFSET, PAYLOAD_LEN_SIZE);
+    
+    *payload_len += header_len;   
+fprintf(stderr, "and payload len: %d\n", *payload_len); 
+    if (*payload_len > sizeof(bbmc->buf_read))
+        return DEST_BUF_TOO_SMALL;
+    
+    //see if we need to read more
+    if (*payload_len > bbmc->len_read)
+    {
+        bbmc->to_read = *payload_len - bbmc->len_read;
+        goto out;
+    }
+
+    *payload_len -= header_len;
+
+    return ALL_GOOD;
+
+out:
+    return ret;
+}
+
+static bb_ret check_legacy_header(struct bb_message_channel *bbmc, 
+    uint32_t *payload_len)
 {
     int offset;
+
+    bb_ret ret;
 
     offset = sizeof(header_magic);
 
     //does the buffer contain enough data to hold the header?
-    if (len < LEGACY_HEADER_SIZE)
-        return REO_DATA_RECV_LEN_TOO_SMALL;
+    if ((ret = fragmentation_check(bbmc, LEGACY_HEADER_SIZE, payload_len)) 
+        != ALL_GOOD)
+    {
+        return ret;
+    }
 
     //check the login message id (01 00 00 00)
-    if (memcmp(buf + offset, legacy_login_msg_id, MSG_ID_LEN) != 0)
+    if (memcmp(bbmc->buf_read + offset, legacy_login_msg_id, MSG_ID_LEN) != 0)
         return REO_MSG_ID_WRONG;
 
     //copy the payload length and check if the buffer size matches
     offset += MSG_ID_LEN;
-    memcpy(payload_len, buf + offset, PAYLOAD_LEN);
-    if (len - LEGACY_HEADER_SIZE != *payload_len)
-        return REO_LENGTH_MISMATCH;
 
     //check the enc value (01)
     //TODO reply might be (02) as well, in which case we need to use AES
     offset += PAYLOAD_LEN;
     
-    if (memcmp(buf + offset, legacy_enc_offset, ENC_OFFSET_LEN) != 0)
+    if (memcmp(bbmc->buf_read + offset, legacy_enc_offset, ENC_OFFSET_LEN) != 0)
         return REO_ENC_WRONG;
 
     offset += ENC_OFFSET_LEN;
     //unknown weird valeu (dd iirc)
-    if (memcmp(buf + offset, enc_mode_aes, sizeof(enc_mode_aes)) != 0)
+    if (memcmp(bbmc->buf_read + offset, enc_mode_aes, sizeof(enc_mode_aes)) 
+        != 0)
+    {
         return REO_ENC_WRONG;
+    }
 
     offset += sizeof(enc_mode_aes);
-    if (memcmp(buf + offset, legacy_unknown_rep,sizeof(legacy_unknown_rep)) 
-        != 0)
+    if (memcmp(bbmc->buf_read + offset, legacy_unknown_rep, 
+        sizeof(legacy_unknown_rep)) != 0)
     {
         return REO_ENC_WRONG;
     }
    
     //finally check the message class 14 166
     offset += sizeof(legacy_unknown_rep);
-    if (memcmp(buf + offset, legacy_msg_class_rep, 
+    if (memcmp(bbmc->buf_read + offset, legacy_msg_class_rep, 
         LEGACY_MSG_CLASS_REP_LEN) != 0)
     {
         return REO_LEGACY_MSG_CLASS_WRONG;
@@ -275,7 +363,7 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
     char hash[MD5_LEN];
     char tmp_buf[4096];
     void *object;
-    int payload_len;
+    uint32_t payload_len;
 
     bb_ret ret;
     struct reo_priv *rp;
@@ -299,11 +387,13 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
 
     //Ok, we are in legacy header, please continue
     //first check the header
-    if ((ret = check_legacy_header(bbmc->buf_read, bbmc->len_read, 
-        &payload_len)) != ALL_GOOD)
+    if ((ret = check_legacy_header(bbmc, &payload_len)) != ALL_GOOD)
     {
+        if (ret == REO_FRAGMENTED)
+            return;
         rs->error = ret;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
 
@@ -318,6 +408,7 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
     {
         rs->error = NO_MORE_MEMORY;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return; 
     }
     
@@ -329,6 +420,7 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
     {
         rs->error = DEST_BUF_TOO_SMALL;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
     
@@ -345,9 +437,14 @@ static void legacy_login_read(struct bb_message_channel *bbmc)
     //release the xml object now that we are really done with it
     free_xml(object);
 
+    if (adjust_buf(bbmc, LEGACY_HEADER_SIZE) != ALL_GOOD)
+    {
+        reo_read(bbmc);
+        return;
+    }
+
     //set the buffer len to 0 so we can read again
-    bbmc->len_read = 0;
-    memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
+    RESET_READ(bbmc);
 
     //transit to the next stage
     rp->state |= ST_ID_MODERN_LOGIN;
@@ -452,27 +549,28 @@ out:
     reo_reset_ping_timer(bbmc);
 }
 
-static bb_ret check_modern_header(char *buf, ssize_t len, char *msg_id, 
+static bb_ret check_modern_header(struct bb_message_channel *bbmc, char *msg_id,
     char *enc_offset, char *msg_class, char *status_code, uint32_t *payload_len)
 {
+    bb_ret ret;
     int offset;
 
     offset = sizeof(header_magic);
 
     //does the buffer contain enough data to hold the header?
-    if (len < MODERN_HEADER_SIZE)
-        return REO_DATA_RECV_LEN_TOO_SMALL;
+    if ((ret = fragmentation_check(bbmc, MODERN_HEADER_SIZE, payload_len)) 
+        != ALL_GOOD)
+    {
+        return ret;
+    }
 
     //check the login message id (01 00 00 00)
-    if (memcmp(buf + offset, msg_id, MSG_ID_LEN) != 0)
+    if (memcmp(bbmc->buf_read + offset, msg_id, MSG_ID_LEN) != 0)
         return REO_MSG_ID_WRONG;
 
     //copy the payload length and check if the buffer size matches
     offset += MSG_ID_LEN;
-    memcpy(payload_len, buf + offset, PAYLOAD_LEN);
-
-    if (len - MODERN_HEADER_SIZE != *payload_len)
-        return REO_LENGTH_MISMATCH;
+    memcpy(payload_len, bbmc->buf_read + offset, PAYLOAD_LEN);
 
     offset += PAYLOAD_LEN;
     //Ignore because the enc_offset can be out of order (in theory). We solved
@@ -482,17 +580,22 @@ static bb_ret check_modern_header(char *buf, ssize_t len, char *msg_id,
         return REO_ENC_WRONG;
     */
     offset += ENC_OFFSET_LEN;
-    if (memcmp(buf + offset, status_code, STATUS_CODE_LEN) != 0)
+    if (memcmp(bbmc->buf_read + offset, status_code, STATUS_CODE_LEN) != 0)
         return REO_STATUS_CODE_WRONG;
 
     //check the message class
     offset += STATUS_CODE_LEN;
-    if (memcmp(buf + offset, msg_class, MSG_CLASS_LEN) != 0)
+    if (memcmp(bbmc->buf_read + offset, msg_class, MSG_CLASS_LEN) != 0)
         return REO_LEGACY_MSG_CLASS_WRONG;
 
     //check the payload offset
-    if (memcmp(buf + offset, modern_payload_offset, PAYLOAD_OFF_SIZE) != 0)
+    //TODO in the future this check might give some errors, especially when we
+    //expect packets with header || generic payload || other payload
+    if (memcmp(bbmc->buf_read + offset, modern_payload_offset, 
+        PAYLOAD_OFF_SIZE) != 0)
+    {
         return REO_PAYLOAD_OFF_WRONG;
+    }
 
     return ALL_GOOD;
 }
@@ -510,12 +613,14 @@ static void modern_login_read(struct bb_message_channel *bbmc)
     rp = get_rp_from_avl(rs);
 
     //first check the header
-    if ((ret = check_modern_header(bbmc->buf_read, bbmc->len_read, 
-        modern_login_msg_id, modern_enc_offset, modern_msg_class_rep, 
-        modern_stat_code_rep, &payload_len)) != ALL_GOOD)
+    if ((ret = check_modern_header(bbmc, modern_login_msg_id, modern_enc_offset,        modern_msg_class_rep, modern_stat_code_rep, &payload_len)) != ALL_GOOD)
     {
+        if (ret == REO_FRAGMENTED)
+            return;
+
         rs->error = ret;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
 
@@ -525,6 +630,8 @@ static void modern_login_read(struct bb_message_channel *bbmc)
 
     //set the buffer len to 0 so we can read again
     bbmc->len_read = 0;
+    bbmc->to_read = 0;
+
     memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
 
     //next state would be wait and listen for now, now that we are logged in
@@ -557,7 +664,8 @@ static void not_supported_read(struct bb_message_channel *bbmc)
     {
         goto out;
     }
- 
+
+    //for optimization purposes, the part below till out: can be removed 
     offset = bbmc->buf_read + 24;
     len = bbmc->len_read - 24;
     
@@ -568,7 +676,9 @@ static void not_supported_read(struct bb_message_channel *bbmc)
 
 out:
     memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
+
     bbmc->len_read = 0;
+    bbmc->to_read = 0;
 
     //reset the timer so we now when to ping
     reo_reset_ping_timer(bbmc);
@@ -596,12 +706,16 @@ static void alarm_event_list_read(struct bb_message_channel *bbmc)
     rp = get_rp_from_avl(rs);
 
     //first check the header
-    if ((ret = check_modern_header(bbmc->buf_read, bbmc->len_read, 
-        alarm_event_list_msg_id, alarm_enc_offset, modern_msg_class_rep, 
-        modern_stat_code_rep, &payload_len)) != ALL_GOOD)
+    if ((ret = check_modern_header(bbmc, alarm_event_list_msg_id, 
+        alarm_enc_offset, modern_msg_class_rep, modern_stat_code_rep, 
+        &payload_len)) != ALL_GOOD)
     {
+        if (ret == REO_FRAGMENTED)
+            return;
+
         rs->error = ret;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
 
@@ -642,9 +756,17 @@ static void alarm_event_list_read(struct bb_message_channel *bbmc)
     //release the xml object now that we are really done with it
     free_xml(object);
 
+    if (adjust_buf(bbmc, MODERN_HEADER_SIZE) != ALL_GOOD)
+    {
+        reo_read(bbmc);
+        return;
+    }
+
     //clear everything up
     memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
+
     bbmc->len_read = 0;
+    bbmc->to_read = 0;
 }
 
 static void not_implemented_read(struct bb_message_channel *bbmc)
@@ -741,26 +863,36 @@ static void talk_ability_read(struct bb_message_channel *bbmc)
     rp = get_rp_from_avl(rs);
 
     //first check the header
-    if ((ret = check_modern_header(bbmc->buf_read, bbmc->len_read, 
-        talk_ability_msg_id, modern_enc_offset, modern_msg_class_rep, 
-        modern_stat_code_rep, &payload_len)) != ALL_GOOD)
+    if ((ret = check_modern_header(bbmc, talk_ability_msg_id, modern_enc_offset,        modern_msg_class_rep, modern_stat_code_rep, &payload_len)) != ALL_GOOD)
     {
+        if (ret == REO_FRAGMENTED)
+            return;
+
         rs->error = ret;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
         return;
     }
 
     offset = bbmc->buf_read + MODERN_HEADER_SIZE;
     len = bbmc->len_read - MODERN_HEADER_SIZE;
 
+    //we dont need to do the steps below, we dont care about the contents anyway
     memset(dec, 0x00, sizeof(dec));
     aes_128_cfb_dec(rp->key, reo_iv, offset, len, dec);
 
-    fprintf(stderr, "just received: %s\n", dec);
+    if (adjust_buf(bbmc, MODERN_HEADER_SIZE) != ALL_GOOD)
+    {
+        reo_read(bbmc);
+        return;
+    }
 
     //clear everything up
     memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
+
     bbmc->len_read = 0;
+    bbmc->to_read = 0;
+    
     rp->state &= ~ST_ID_TALK_ABILITY;
 
     //reset the timer so we now when to ping
@@ -871,16 +1003,27 @@ static void talk_config_read(struct bb_message_channel *bbmc)
     rp = get_rp_from_avl(rs);
 
     //first check the header
-    if ((ret = check_modern_header(bbmc->buf_read, bbmc->len_read, 
-        talk_config_msg_id, modern_enc_offset, modern_msg_class_rep, 
-        modern_stat_code_rep, &payload_len)) != ALL_GOOD)
+    if ((ret = check_modern_header(bbmc, talk_config_msg_id, modern_enc_offset, 
+        modern_msg_class_rep, modern_stat_code_rep, &payload_len)) != ALL_GOOD)
     {
+        if (ret == REO_FRAGMENTED)
+            return;
+
         rs->error = ret;
         iv_event_raw_post(&(bbmct->error_ev));
+        RESET_READ(bbmc);
+        return;
+    }
+
+    if (adjust_buf(bbmc, MODERN_HEADER_SIZE) != ALL_GOOD)
+    {
+        reo_read(bbmc);
         return;
     }
 
     bbmc->len_read = 0;
+    bbmc->to_read = 0;
+
     memset(bbmc->buf_read, 0x00, sizeof(bbmc->buf_read));
 
     //reset the timer so we now when to ping
@@ -1002,7 +1145,9 @@ static void talk_write(struct bb_message_channel *bbmc)
 
 static void talk_read(struct bb_message_channel *bbmc)
 {
-    bbmc->len_read = 0;
+    //whatever we were busy with, forget it, this can cause problems
+    RESET_READ(bbmc);
+
     st_fp_table[ST_TALK]->st_write(bbmc);
 }
 
@@ -1023,6 +1168,7 @@ void reo_init(void *object)
     {
         rs->error = NO_MORE_MEMORY;
         iv_event_raw_post(&(bbmct->error_ev));
+        return;
     }
     memset(rp, 0x00, sizeof(*rp));
 
