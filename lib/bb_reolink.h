@@ -13,7 +13,10 @@ struct reo_session
 {
     char *user;
     char *pass;
+    char *snapshot_url;
     int ping_interval;
+    int snapshot_width;
+    int snapshot_height;
     bb_ret error;
 
     struct bb_message_channel *bbmc_down;
@@ -40,6 +43,11 @@ void reo_deinit(void *object);
 /* Inits the reolink layer, setups a connection, etc)
  */
 void reo_init(void *object);
+
+/* Takes a snapshot with the camera
+ */
+void reo_take_snapshot(void *object);
+
 
 //callback functions
 void reo_read(struct bb_message_channel *bbmc);

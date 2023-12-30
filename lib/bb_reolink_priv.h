@@ -16,6 +16,7 @@
 #define ALARM_EVENT_LIST_MSG_ID     0x21, 0x00, 0x00, 0x00
 
 #define LEGACY_LOGIN_MSG_LEN        0x2c, 0x07, 0x00, 0x00, 0x00
+#define LEGACY_LOGIN_MSG_LEN_UPD    0x00, 0x00, 0x00, 0x00, 0x00
 #define MODERN_LOGIN_MSG_LEN        0x28, 0x01, 0x00, 0x00
 #define PING_MSG_LEN                0x00, 0x00, 0x00, 0x00
 #define EMPTY_MSG_LEN               0x00, 0x00, 0x00, 0x00
@@ -31,6 +32,7 @@
 
 #define LEGACY_ENC_OFFSET           0x00, 0x00, 0x00, 0x00
 #define LEGACY_ENC_MODE             0x00, 0x00, 0x00, 0x02
+#define LEGACY_ENC_MODE_UPD         0x00, 0x00, 0x00, 0x12
 #define MODERN_ENC_OFFSET           0x00, 0x00, 0x01, 0x00
 #define TALK_ENC_OFFSET             0x00, 0x00, 0x01, 0x00
 #define MODERN_STAT_CODE_REQ        0x00, 0x00
@@ -38,6 +40,7 @@
 #define TALK_CONFIG_STAT_CODE_REP   0x00, 0x00
 #define ALARM_ENC_OFFSET            0x00, 0x00, 0x00, 0x00
 #define ENC_MODE_AES                0x02
+#define ENC_MODE_AES_UPD            0x12
 #define LEGACY_UNKNOWN              0xdc
 #define LEGACY_UNKNOWN_REP          0xdd
 
@@ -238,6 +241,10 @@ static char login_header[]             = { HEADER_MAGIC,
     LEGACY_LOGIN_MSG_ID, LEGACY_LOGIN_MSG_LEN, LEGACY_ENC_MODE, 
     LEGACY_UNKNOWN, LEGACY_MSG_CLASS_REQ };
 
+static char login_header_upd[]         = { HEADER_MAGIC, 
+    LEGACY_LOGIN_MSG_ID, LEGACY_LOGIN_MSG_LEN_UPD, LEGACY_ENC_MODE_UPD, 
+    LEGACY_UNKNOWN, LEGACY_MSG_CLASS_REQ };
+
 static char login_modern_header[]      = { HEADER_MAGIC,
     MODERN_LOGIN_MSG_ID, MODERN_LOGIN_MSG_LEN, MODERN_ENC_OFFSET,
     MODERN_STAT_CODE_REQ, MODERN_MSG_CLASS_REQ, MODERN_PAYLOAD_OFFSET };
@@ -267,6 +274,7 @@ static char header_magic[]             = {HEADER_MAGIC};
 static char legacy_login_msg_id[]      = {LEGACY_LOGIN_MSG_ID};
 static char legacy_enc_offset[]        = {LEGACY_ENC_OFFSET};
 static char enc_mode_aes[]             = {ENC_MODE_AES};
+static char enc_mode_aes_upd[]         = {ENC_MODE_AES_UPD};
 static char legacy_unknown_rep[]       = {LEGACY_UNKNOWN_REP};
 static char legacy_msg_class_rep[]     = {LEGACY_MSG_CLASS_REP};
 static char modern_login_msg_id[]      = {MODERN_LOGIN_MSG_ID};

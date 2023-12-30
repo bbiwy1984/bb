@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <toml.h>
 
 #include <bb_tcp.h>
@@ -45,6 +46,21 @@ static bb_ret parse_reolink(toml_table_t *tl, struct doorbell *db)
         {
             str = toml_int_in(tl, t);
             rs->ping_interval = str.u.i;
+        }
+        else if (strncmp(t, "snapshot_width", strlen("snapshot_width")) == 0)
+        {
+            str = toml_int_in(tl, t);
+            rs->snapshot_width = str.u.i;
+        }
+        else if (strncmp(t, "snapshot_height", strlen("snapshot_height")) == 0)
+        {
+            str = toml_int_in(tl, t);
+            rs->snapshot_height = str.u.i;
+        }
+        else if (strncmp(t, "snapshot_url", strlen("snapshot_url")) == 0)
+        {
+            str = toml_string_in(tl, t);
+            rs->snapshot_url = str.u.s;
         }
         else if (strncmp(t, "type", strlen("type")) != 0)
             return CONFIG_REOLINK_UNSUPPORTED_OPTION;
@@ -275,6 +291,11 @@ static bb_ret parse_wire(toml_array_t *a, struct doorbell *db)
             str = toml_string_in(t, s);
             ws->storage_dir = str.u.s;
         }
+        else if (strncmp(s, "snapshot_command", strlen("snapshot_command"))== 0)
+        {
+            str = toml_string_in(t,s);
+            ws->snapshot_command = str.u.s;
+        }
         else
             return CONFIG_WIRE_UNSUPPORTED_OPTION;
     }    
@@ -331,6 +352,24 @@ static bb_ret parse_door(toml_array_t *door, struct doorbell *db)
             str = toml_string_in(t, "mov_msg");
             db->mov_msg = str.u.s;
         }
+        else if (strncmp(toml_key_in(t,i), "pir_alert_send_snapshot", 
+            strlen("pir_alert_send_snapshot")) == 0)
+        {
+            str = toml_bool_in(t, "pir_alert_send_snapshot");
+            db->pir_alert_send_snapshot = str.u.b;
+        }
+        else if (strncmp(toml_key_in(t,i), "mov_alert_send_snapshot", 
+            strlen("mov_alert_send_snapshot")) == 0)
+        {
+            str = toml_bool_in(t, "mov_alert_send_snapshot");
+            db->mov_alert_send_snapshot = str.u.b;
+        }
+        else if (strncmp(toml_key_in(t,i), "ring_alert_send_snapshot", 
+            strlen("ring_alert_send_snapshot")) == 0)
+        {
+            str = toml_bool_in(t, "ring_alert_send_snapshot");
+            db->ring_alert_send_snapshot = str.u.b;
+        }        
         else
             return CONFIG_NO_LAYER_OR_RELAY;
     }

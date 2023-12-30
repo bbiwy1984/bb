@@ -78,7 +78,7 @@ static void get_api_version(struct wire_priv *wp)
     if (ret != 0)
     {
         wp->ws->error = WIRE_ERROR_GETTING_API_VERSION;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
 }
@@ -90,7 +90,7 @@ static void channel_status_change_cb(bool status, void *arg)
 
     wp = (struct wire_priv*)arg;
 
-    iv_event_raw_post(&(wp->ws->bbmct.wire_init_success_ev));
+    iv_event_raw_post(&(wp->ws->wire_init_success_ev));
 }
 
 static void sync_done_cb(void *arg)
@@ -106,14 +106,14 @@ static void set_client_id(struct wire_priv *wp)
     if ((ret = store_user_open(&so, wp->store, "zcall", "clientid", "rb")) != 0)
     {
         wp->ws->error = WIRE_OPEN_USER_STORE_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
 
     if ((ret = sobject_read_lenstr(&str, so)) != 0)
     {
         wp->ws->error = WIRE_READ_STRING_FROM_STORE_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
     
@@ -136,7 +136,7 @@ static void conv_init(struct wire_priv *wp)
     if (store_user_open(&so, wp->store, "zcall", "conv", "rb") != 0)
     {
         wp->ws->error = WIRE_OPEN_USER_STORE_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         mem_deref(so);
         return;
     }
@@ -144,7 +144,7 @@ static void conv_init(struct wire_priv *wp)
     if (sobject_read_lenstr(&conv_id, so) != 0)
     {
         wp->ws->error = WIRE_READ_STRING_FROM_STORE_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -170,7 +170,7 @@ static void ready_cb(void *arg)
     if (avs_start(engine_get_login_token(wp->engine)) != 0)
     {
         wp->ws->error = WIRE_ENGINE_START_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
     }
 
     //make sure we load the right conversation
@@ -185,15 +185,15 @@ static void error_cb(int error, void *arg)
 
     wp = (struct wire_priv*)arg;
     wp->ws->error = error;
-    iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+    iv_event_raw_post(&(wp->ws->wire_error_ev));
 }
 
+//Should be called after a deinit(), no need to notify anybody else about this
 static void shutdown_cb(void *arg)
 {
     struct wire_priv *wp;
 
     wp = (struct wire_priv*)arg;
-    iv_event_raw_post(&(wp->ws->bbmct.disconnect_ev));
 
 	re_cancel();
 }
@@ -208,7 +208,7 @@ void add_conv_cb(struct engine_conv *conv, void *arg)
     if ((cl = malloc(sizeof(*cl))) == NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
 
@@ -224,6 +224,24 @@ static void signal_cb(int sig)
 {
 }
 
+static void otr_img_read_cb(int err, void *arg)
+{
+    struct wire_priv *wp;
+
+    wp = (struct wire_priv*)arg;
+    
+    if (err == 0)
+    {
+        memset(wp->ws->snapshot_buf, 0x00, SNAPSHOT_SIZE);
+        iv_event_raw_post(&(wp->ws->wire_sent_snapshot_success_ev));
+    }
+    else
+    {
+        wp->ws->error = WIRE_OTR_READ_FAIL;
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
+    }
+}
+
 static void otr_read_cb(int err, void *arg)
 {
     struct wire_priv *wp;
@@ -231,12 +249,11 @@ static void otr_read_cb(int err, void *arg)
     wp = (struct wire_priv*)arg;
     
     if (err == 0)
-        iv_event_raw_post(&(wp->ws->bbmct.wire_sent_success_ev));
+        iv_event_raw_post(&(wp->ws->wire_sent_msg_success_ev));
     else
     {
         wp->ws->error = WIRE_OTR_READ_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
-        return;
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
     }
 }
 
@@ -330,14 +347,14 @@ static void protobuf_encode_asset_image(struct asset_up *au, char *ftype,
     if (len > *pbuf_len)
     {
         au->wp->ws->error = WIRE_PROTOBUF_BUF_TOO_SMALL;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         return;
     }    
 
     if ((len = generic_message__pack(&msg, pbuf)) == 0)
     {
         au->wp->ws->error = WIRE_ERROR_PACKING_PROTOBUF;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         return;
     }
 
@@ -364,7 +381,7 @@ static void upload_asset_cb(int err, const struct http_msg *msg,
     if (err != 0)
     {
         au->wp->ws->error = WIRE_CANNOT_POST_ASSET;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -372,7 +389,7 @@ static void upload_asset_cb(int err, const struct http_msg *msg,
     if (msg->scode != 201)
     {
         au->wp->ws->error = WIRE_INVALID_STATUS_CODE_RECEIVED;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -388,14 +405,14 @@ static void upload_asset_cb(int err, const struct http_msg *msg,
     if ((au->asset_id = malloc(strlen(key) + 1)) == NULL)
     {
         au->wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((au->domain = malloc(strlen(domain) + 1)) == NULL)
     {
         au->wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -419,18 +436,18 @@ static void upload_asset_cb(int err, const struct http_msg *msg,
     else
     {
         au->wp->ws->error = WIRE_INVALID_ASSET_TYPE;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto close_magic;
     }
 
     //send asset to channel
     ret = engine_send_otr_message(au->wp->engine, au->wp->cbox, au->wp->conv, 
-        NULL, 0, au->wp->client_id, pbuf, pbuf_len, false, false, otr_read_cb, 
-        au->wp);
+        NULL, 0, au->wp->client_id, pbuf, pbuf_len, false, false, 
+        otr_img_read_cb, au->wp);
     if (ret != 0)
     {
         au->wp->ws->error = WIRE_SENDING_OTR_FAIL;
-        iv_event_raw_post(&(au->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(au->wp->ws->wire_error_ev));
         goto close_magic;
     }
 
@@ -467,7 +484,7 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
     if ((enc_buf = malloc(enc_len)) == NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
     
@@ -481,21 +498,21 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
     if ((au = mem_zalloc(sizeof(*au), asset_up_destructor)) ==  NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((au->asset_plain = malloc(plain_len)) == NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((au->asset_enc = malloc(enc_len)) == NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -504,7 +521,7 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
         sizeof(IV))) != ALL_GOOD)
     {
         wp->ws->error = ret;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -524,7 +541,7 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
         "/assets/v3")) != 0)
     {
         wp->ws->error = WIRE_ERROR_CREATING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
     
@@ -557,7 +574,7 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
         == NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
     
@@ -570,14 +587,14 @@ static void wire_upload_asset(struct wire_priv *wp, char *plain_buf,
         body, strlen(body_head) + enc_len + strlen(body_footer) + 1)) != 0)
     {
         wp->ws->error = WIRE_CANNOT_ADD_BODY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out_body;
     }
 
     if ((err = rest_req_start(NULL, rr, wp->conv->engine->rest, 0)) != 0)
     {
         wp->ws->error = WIRE_ERROR_STARTING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
     }
 
 out_body:
@@ -586,11 +603,12 @@ out:
     free(enc_buf);
 }
 
-void wire_send_pic_from_buf(void *object)
+void wire_send_snapshot(void *object)
 {
     int i;
     int dif;
     char *plain_buf;
+    size_t snap_len;
     size_t plain_len;
 
     struct wire_session *ws;
@@ -600,31 +618,24 @@ void wire_send_pic_from_buf(void *object)
     wp = get_wp_from_avl(ws);
 
     //padd it first
-    plain_len = ws->bbmct.bbmc.len_write + (ws->bbmct.bbmc.len_write % 32 == 0 ?
-        0 : 32 - (ws->bbmct.bbmc.len_write % 32));
+    memcpy(&snap_len, ws->snapshot_buf, sizeof(snap_len));   
 
-    if (plain_len > sizeof(ws->bbmct.bbmc.buf_write))
+    plain_len = snap_len + (snap_len % 32 == 0 ? 0 : 32 - (snap_len % 32));
+
+    if (plain_len + sizeof(snap_len) > SNAPSHOT_SIZE)
     {
-        if ((plain_buf = malloc(plain_len)) == NULL)
-        {
-            ws->error = NO_MORE_MEMORY;
-            iv_event_raw_post(&(ws->bbmct.error_ev));
-            return;
-        }
+        ws->error = WIRE_BUF_TOO_SMALL_FOR_PADDING;
+        iv_event_raw_post(&(ws->wire_error_ev));
+        return;
     }
-    else
-        plain_buf = ws->bbmct.bbmc.buf_write;
 
-    dif = plain_len - ws->bbmct.bbmc.len_write;
+    dif = plain_len - snap_len;
 
     //padding
     for (i = 0; i < dif; i++)
-        plain_buf[ws->bbmct.bbmc.len_write + i] = dif;
-
-    wire_upload_asset(wp, plain_buf, plain_len);
-
-    if (plain_buf != ws->bbmct.bbmc.buf_write)
-        free(plain_buf);
+        ws->snapshot_buf[snap_len + sizeof(snap_len) + i] = dif;
+    
+    wire_upload_asset(wp, ws->snapshot_buf + sizeof(snap_len), plain_len);
 }
 
 void wire_send_file(void *object)
@@ -643,22 +654,22 @@ void wire_send_file(void *object)
     ws = (struct wire_session*)object;
     wp = get_wp_from_avl(ws);
  
-    if ((fp = fopen(ws->bbmct.bbmc.buf_write, "rb")) == NULL)
+    if ((fp = fopen(ws->bbmc.buf_write, "rb")) == NULL)
     {
         ws->error = WIRE_CANNOT_OPEN_SRC_FILE;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     //alloc enough space to store the file in mem
-    stat(ws->bbmct.bbmc.buf_write, &st);
+    stat(ws->bbmc.buf_write, &st);
 
     plain_len = st.st_size + (st.st_size % 32 == 0 ? 0 : 32 -(st.st_size % 32));
 
     if ((file_buf = malloc(plain_len)) == NULL)
     {
         ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
@@ -688,10 +699,10 @@ void wire_send_msg(void *object)
     ws = (struct wire_session*)object;
     wp = get_wp_from_avl(ws);
 
-    if ((protobuf_encode_text(buf, &len, ws->bbmct.bbmc.buf_write)) != 0)
+    if ((protobuf_encode_text(buf, &len, ws->bbmc.buf_write)) != 0)
     {
         ws->error = WIRE_PROTOBUF_ENCODING_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
@@ -700,7 +711,7 @@ void wire_send_msg(void *object)
     if (ret != 0)
     {
         ws->error = WIRE_SENDING_OTR_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 }
@@ -768,28 +779,28 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
     if (err != 0)
     {
         ad->wp->ws->error = WIRE_CANNOT_FETCH_ASSET;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto out;
     }
 
     if (msg->scode != 302) 
     {
         ad->wp->ws->error = WIRE_NO_302_RECEIVED;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((hdr = http_msg_hdr(msg, HTTP_HDR_LOCATION)) == NULL)
     {
         ad->wp->ws->error = WIRE_NO_REDIRECT_FOUND;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto out;
     }       
             
     if ((err = pl_strdup(&location, &hdr->val)) != 0)
     {
         ad->wp->ws->error = WIRE_CANNOT_PARSE_ASSET_LOCATION;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -797,7 +808,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
     if ((chunk.memory = malloc(1)) == NULL)
     {
         ad->wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto cleanup_loc;
     }
 
@@ -815,7 +826,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
     if ((res = curl_easy_perform(curl_handle)) != CURLE_OK)
     {
         ad->wp->ws->error = WIRE_CANNOT_DOWNLOAD_ASSET;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto cleanup_loc;
     }
 
@@ -823,7 +834,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
     if ((dec_buf = malloc(chunk.size)) == NULL)
     {
         ad->wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto cleanup_curl;
     }
     
@@ -831,7 +842,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
         chunk.size - 16, dec_buf)) != ALL_GOOD)
     {
         ad->wp->ws->error = ret;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto cleanup_dec_buf;
     }
 
@@ -864,7 +875,7 @@ static void asset_loc_handler(int err, const struct http_msg *msg,
     if ((fp = fopen(file_loc, "wb")) == NULL)
     {
         ad->wp->ws->error = WIRE_CANNOT_OPEN_DEST_FILE;
-        iv_event_raw_post(&(ad->wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(ad->wp->ws->wire_error_ev));
         goto close_magic;
     }
 
@@ -912,7 +923,7 @@ static void get_v3_asset(struct wire_priv *wp, Asset *asset)
     if (ret != ALL_GOOD)
     {
         wp->ws->error = ret;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -920,7 +931,7 @@ static void get_v3_asset(struct wire_priv *wp, Asset *asset)
     if ((ad = mem_zalloc(sizeof(*ad), asset_data_destructor)) ==  NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -935,14 +946,14 @@ static void get_v3_asset(struct wire_priv *wp, Asset *asset)
     if (err != 0)
     {
         wp->ws->error = WIRE_ERROR_CREATING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((err = rest_req_start(NULL, rr, wp->engine->rest, 0)) != 0)
     {
         wp->ws->error = WIRE_ERROR_STARTING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
  out:
@@ -982,7 +993,7 @@ static void get_v4_asset(struct wire_priv *wp, Asset *asset)
     if (ret != ALL_GOOD)
     {
         wp->ws->error = ret;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -990,7 +1001,7 @@ static void get_v4_asset(struct wire_priv *wp, Asset *asset)
     if ((ad = mem_zalloc(sizeof(*ad), asset_data_destructor)) ==  NULL)
     {
         wp->ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -1007,7 +1018,7 @@ static void get_v4_asset(struct wire_priv *wp, Asset *asset)
     if (err != 0)
     {
         wp->ws->error = WIRE_ERROR_CREATING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -1015,14 +1026,14 @@ static void get_v4_asset(struct wire_priv *wp, Asset *asset)
         asset->uploaded->asset_token)) != 0)
     {
         wp->ws->error = WIRE_ERROR_SETTING_ASSET_TOKEN;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
     if ((err = rest_req_start(NULL, rr, wp->engine->rest, 0)) != 0)
     {
         wp->ws->error = WIRE_ERROR_STARTING_REQUEST;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         goto out;
     }
 
@@ -1059,7 +1070,7 @@ static void otr_msg_cb(struct engine_conv *conv, struct engine_user *from,
     {
         //should never happen
         wp->ws->error = WIRE_CBOX_FIND_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
 
@@ -1069,7 +1080,7 @@ static void otr_msg_cb(struct engine_conv *conv, struct engine_user *from,
         len)) != 0)
     {
         wp->ws->error = WIRE_CBOX_DECRYPT_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
     
@@ -1077,7 +1088,7 @@ static void otr_msg_cb(struct engine_conv *conv, struct engine_user *from,
     if ((ret = protobuf_decode(&msg, buf, buf_len)) != 0)
     {
         wp->ws->error = WIRE_DECODE_MSG_FAIL;
-        iv_event_raw_post(&(wp->ws->bbmct.error_ev));
+        iv_event_raw_post(&(wp->ws->wire_error_ev));
         return;
     }
     
@@ -1085,8 +1096,12 @@ static void otr_msg_cb(struct engine_conv *conv, struct engine_user *from,
     {
         case GENERIC_MESSAGE__CONTENT_TEXT:
             text = msg->gm->text;
-            //for future purposes, we can parse the message here then do stuff
-            //string is in text->content;
+            
+            if (strncasecmp(text->content, wp->ws->snapshot_command, 
+                strlen(wp->ws->snapshot_command)) == 0)
+            {
+                iv_event_raw_post(&(wp->ws->wire_take_snapshot_ev));
+            }
             break;
         case GENERIC_MESSAGE__CONTENT_ASSET:
             //for future purposes, we could save an image here, code is 
@@ -1099,7 +1114,7 @@ static void otr_msg_cb(struct engine_conv *conv, struct engine_user *from,
     mem_deref(msg);
 }
 
-static void wire_re_send_pic_from_buf(int flags, void *arg)
+static void wire_re_send_snapshot(int flags, void *arg)
 {
     char buf[BUFSIZE];
     ssize_t len;
@@ -1107,15 +1122,13 @@ static void wire_re_send_pic_from_buf(int flags, void *arg)
 
     struct wire_session *ws;
     ws = (struct wire_session*)arg;
-
     //empty the buffer first
     do 
     {
-        len = read(ws->wire_send_pic_from_buf_ev.event_rfd.fd, buf,sizeof(buf));
+        len = read(ws->fd_send_snapshot, buf,sizeof(buf));
         rlen += len;
     } while (len < 0 && errno == EINTR);
-
-    wire_send_pic_from_buf(arg);
+    wire_send_snapshot(arg);
 }
 
 static void wire_re_send_file(int flags, void *arg)
@@ -1130,7 +1143,7 @@ static void wire_re_send_file(int flags, void *arg)
     //empty the buffer first
     do 
     {
-        len = read(ws->wire_send_file_ev.event_rfd.fd, buf, sizeof(buf));
+        len = read(ws->fd_send_file, buf, sizeof(buf));
         rlen += len;
     } while (len < 0 && errno == EINTR);
 
@@ -1149,7 +1162,7 @@ static void wire_re_send_msg(int flags, void *arg)
     //empty the buffer first
     do 
     {
-        len = read(ws->wire_send_msg_ev.event_rfd.fd, buf, sizeof(buf));
+        len = read(ws->fd_send_msg, buf, sizeof(buf));
         rlen += len;
     } while (len < 0 && errno == EINTR);
 
@@ -1168,7 +1181,7 @@ static void wire_re_deinit(int flags, void *arg)
     //empty the buffer first
     do 
     {
-        len = read(ws->wire_deinit_ev.event_rfd.fd, buf, sizeof(buf));
+        len = read(ws->fd_deinit, buf, sizeof(buf));
         rlen += len;
     } while (len < 0 && errno == EINTR);
 
@@ -1187,7 +1200,7 @@ static void wire_re_init(int flags, void *arg)
     //empty the buffer first
     do 
     {
-        len = read(ws->wire_init_ev.event_rfd.fd, buf, sizeof(buf));
+        len = read(ws->fd_init, buf, sizeof(buf));
         rlen += len;
     } while (len < 0 && errno == EINTR);
 
@@ -1214,10 +1227,6 @@ void wire_deinit(void *object)
         free(cl);
     }
 
-    iv_event_raw_unregister(&(ws->wire_init_ev));
-    iv_event_raw_unregister(&(ws->wire_deinit_ev));
-    iv_event_raw_unregister(&(ws->wire_send_msg_ev));
-
     engine_shutdown(wp->engine);
 
 	mem_deref(wp->engine);
@@ -1232,7 +1241,7 @@ void wire_deinit(void *object)
 	libre_close();
     free(wp);
 
-    iv_event_raw_post(&(ws->bbmct.wire_deinit_success_ev));
+    iv_event_raw_post(&(ws->wire_deinit_success_ev));
 }
 
 void wire_init(void *object)
@@ -1251,7 +1260,7 @@ void wire_init(void *object)
     if ((wp = malloc(sizeof(*wp))) == NULL)
     {
         ws->error = NO_MORE_MEMORY;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
@@ -1281,35 +1290,35 @@ void wire_init(void *object)
     if ((ret = libre_init()) != 0)
     {
         ws->error = WIRE_LIBRE_INIT_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     if ((ret = avs_init(AVS_FLAG_EXPERIMENTAL)) != 0)
     {
         ws->error = WIRE_AVS_INIT_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     if ((ret = engine_init(msys)) != 0)
     {
         ws->error = WIRE_ENGINE_INIT_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     if ((ret = msystem_enable_datachannel(flowmgr_msystem(), true)) != 0)
     {
         ws->error = WIRE_DATACHANNEL_ENABLE_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     if ((ret = msystem_enable_datachannel(flowmgr_msystem(), true)) != 0)
     {
         ws->error = WIRE_DATACHANNEL_ENABLE_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
@@ -1317,14 +1326,14 @@ void wire_init(void *object)
     if ((ret = store_alloc(&(wp->store), ws->store_dir)) != 0)
     {
         ws->error = WIRE_CREATE_STORE_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     if ((ret = cryptobox_alloc(&(wp->cbox), user_store)) != 0)
     {
         ws->error = WIRE_CRYPTOBOX_ALLOC_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
@@ -1335,26 +1344,21 @@ void wire_init(void *object)
     if (ret != 0)
     {
         ws->error = WIRE_ENGINE_ALLOC_FAIL;
-        iv_event_raw_post(&(ws->bbmct.error_ev));
+        iv_event_raw_post(&(ws->wire_error_ev));
         return;
     }
 
     //register callback functions
-    if (ws->wire_send_msg_ev.cookie != NULL)
-        fd_listen(ws->wire_send_msg_ev.event_rfd.fd, FD_READ, wire_re_send_msg, 
-            ws->wire_send_msg_ev.cookie);    
-    if (ws->wire_init_ev.cookie != NULL)
-        fd_listen(ws->wire_init_ev.event_rfd.fd, FD_READ, wire_re_init, 
-            ws->wire_init_ev.cookie);
-    if (ws->wire_deinit_ev.cookie != NULL)
-        fd_listen(ws->wire_deinit_ev.event_rfd.fd, FD_READ, wire_re_deinit, 
-            ws->wire_deinit_ev.cookie);
-    if (ws->wire_send_file_ev.cookie != NULL)
-        fd_listen(ws->wire_send_file_ev.event_rfd.fd, FD_READ, 
-            wire_re_send_file, ws->wire_send_file_ev.cookie);
-    if (ws->wire_send_pic_from_buf_ev.cookie != NULL)
-        fd_listen(ws->wire_send_pic_from_buf_ev.event_rfd.fd, FD_READ,
-            wire_re_send_pic_from_buf, ws->wire_send_pic_from_buf_ev.cookie);
+    if (ws->fd_init != 0)
+        fd_listen(ws->fd_init, FD_READ, wire_re_init, ws);
+    if (ws->fd_deinit != 0)
+        fd_listen(ws->fd_deinit, FD_READ, wire_re_deinit, ws);
+    if (ws->fd_send_msg != 0)
+        fd_listen(ws->fd_send_msg, FD_READ, wire_re_send_msg, ws);
+    if (ws->fd_send_file != 0)
+        fd_listen(ws->fd_send_file, FD_READ, wire_re_send_file, ws);
+    if (ws->fd_send_snapshot != 0)
+        fd_listen(ws->fd_send_snapshot, FD_READ, wire_re_send_snapshot, ws);
 
     engine_lsnr_register(wp->engine, &(wp->e_lsnr));
     re_main(signal_cb);

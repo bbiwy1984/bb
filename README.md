@@ -20,10 +20,15 @@ The following libraries are needed:
 - Gstreamer (used for converting audio files to the right format, might go in future versions);
 - Mxml (parsing and creation of XML messages used in the communication protocol);
 - Wire-AVS
+- Curl (for downloading images via Wire and the doorbell)
+- Magic (to see what type of image we are uploading)
+- GD (to get the dimensions of the image we are uploading)
 
 On Ubuntu Tomlc99 is not supported and has to be downloaded and installed from [here](https://github.com/cktan/tomlc99)
 
 With the added Wire support, compiling got significantly more complex. First one needs to downloads Wire-avs from [here](https://github.com/wireapp/wire-avs). Clang13 should be used to compile and install it according to the instructions found in the README.md file. The configure command also got more complex. Filled in are some sample values, but please adjust them according to your setup. Also note that Wire depends on BoringSSL for certain functionality. Some of the libs in the configure command are not needed at the time, but most likely in the future, hence they are in there. 
+
+Also, the protocol buffer speficiation that Wire uses is outdated. Please add the following line "optional string asset_domain = 7;" to "wire-avs/contrib/generic-message-proto/proto/messages.proto" in the proto specification of "message RemoteData". This line is needed to be able to download and upload images.
 
 To compile and install:
 ```
@@ -51,7 +56,7 @@ A sample configuration file can be found in the test/ directory
 ## Roadmap
 - [x] Add support to send messages with the Wire client
 - [x] Add support to send images with the Wire client
-- [ ] When a doorbell press is detected, send an image via Wire in a (group) chat
+- [x] When a doorbell press is detected, send an image via Wire in a (group) chat
 - [ ] Download the video stream via RTMP to a file as Reolink devices work best with RTMP
 - [ ] Add support to send videos with the Wire client
 - [ ] When a doorbell press is detected, send the video via Wire in a group chat by initiating a call
@@ -60,7 +65,7 @@ A sample configuration file can be found in the test/ directory
 - [ ] ???
 
 ## Bugs ?
-This code is not bug free or well tested, please report them and I'll fix them asap. 
+This code is not bug free or well tested, please report them and I'll fix them asap. In fact, this code is barely tested at all.
 There are some issues I encountered but was too lazy to fix (for now):
 -Sometimes the login process doesn't work properly
 -If connected for a long time, alarm messages aren't parsed properly anymore

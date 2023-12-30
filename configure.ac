@@ -1,4 +1,4 @@
-AC_INIT([BigBrother Surveillance],[0.3],[big_brother_is_watching_you@tutanota.com])
+AC_INIT([BigBrother Surveillance],[0.3.1],[big_brother_is_watching_you@tutanota.com])
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AM_PROG_AR
 LT_INIT

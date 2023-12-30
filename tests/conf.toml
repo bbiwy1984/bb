@@ -5,12 +5,18 @@
         ring_msg = "There is somebody at the door"
         pir_msg = "Got a PIR alert"
         mov_msg = "Movement detected"
+        pir_alert_send_snapshot = true
+        mov_alert_send_snapshot = true
+        ring_alert_send_snapshot = true
         [[doorbell.frontdoor.layers]]
             [[doorbell.frontdoor.layers.layer1]]
                 type = "reolink"
                 user = "admin"
                 pass = "your father smelt of elderberries"
                 ping_interval = 16
+                snapshot_width = 640
+                snapshot_height = 480
+                snapshot_url = "https://ip/cgi-bin/api.cgi?cmd=Snap&channel=0&rs=bla1"
             [[doorbell.frontdoor.layers.layer2]]
                 type = "tcp"
                 host = "192.168.1.1"
@@ -28,4 +34,6 @@
             store_dir = "/home/user/.zcall/"
             req_url = "https://prod-nginz-https.wire.com"
             not_url = "https://prod-nginz-ssl.wire.com"
+            storage_dir = "/tmp"
+            snapshot_command = "snap"
 

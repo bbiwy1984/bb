@@ -1,9 +1,10 @@
 #include <stdio.h> //for NULL needed by iv_avl.h
 #include <iv_avl.h>
 #include <iv_list.h>
-
 #include <fcntl.h>
 #include <sys/stat.h>
+
+#include <curl/curl.h>
 
 #include <bb_xml.h>
 #include <bb_crypto.h>
@@ -150,20 +151,6 @@ void reo_read(struct bb_message_channel *bbmc)
 
     if (memcmp(bbmc->buf_read, header_magic, sizeof(header_magic)) != 0)
     {
-        int i;
-        fprintf(stderr, "got len: %ld\n", bbmc->len_read);
-        for (i = 0; i < bbmc->len_read; i+=8)
-        {
-            fprintf(stderr, "0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
-                (unsigned char)bbmc->buf_read[i],
-                (unsigned char)bbmc->buf_read[i+1],
-                (unsigned char)bbmc->buf_read[i+2],
-                (unsigned char)bbmc->buf_read[i+3],
-                (unsigned char)bbmc->buf_read[i+4],
-                (unsigned char)bbmc->buf_read[i+5],
-                (unsigned char)bbmc->buf_read[i+6],
-                (unsigned char)bbmc->buf_read[i+7]);
-        }
         rs->error= REO_MAGIC_WRONG;
         iv_event_raw_post(&(bbmct->error_ev));
         RESET_READ(bbmc);
@@ -203,15 +190,17 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
     unsigned char hash[MD5_LEN];
     size_t header_len;
 
+    struct reo_priv *rp;
     struct reo_session *rs;
     struct bb_message_channel_top *bbmct;
 
     bbmct = (struct bb_message_channel_top*)(bbmc->bbmc_up);
     rs = container_of(bbmct, struct reo_session, bbmct);
-    
+    rp = get_rp_from_avl(rs);
+
     //clears the buffer and copies the header
     memset(bbmc->buf_write, 0x00, sizeof(bbmc->buf_write));
-    memcpy(bbmc->buf_write, login_header, sizeof(login_header));
+    memcpy(bbmc->buf_write, login_header_upd, sizeof(login_header_upd));
 
     //calculates the hash of the user
     if ((rs->error = bb_md5(rs->user, strlen(rs->user), hash)) != ALL_GOOD)
@@ -231,9 +220,8 @@ static void legacy_login_write(struct bb_message_channel *bbmc)
         return;
     }
     
-    reo_md5(bbmc->buf_write + sizeof(login_header) + (MD5_LEN*2), hash);   
-
-    bbmc->len_write = ODD_LEGACY_LOGIN_LEN;
+    //reo_md5(bbmc->buf_write + sizeof(login_header) + (MD5_LEN*2), hash);   
+    bbmc->len_write = sizeof(login_header_upd); //ODD_LEGACY_LOGIN_LEN;
     bbmc->write_cf(bbmc);
 
     //reset ping timer
@@ -252,8 +240,6 @@ static bb_ret adjust_buf(struct bb_message_channel *bbmc, size_t header_size)
 
     if (payload_len < bbmc->len_read)
     {
-        fprintf(stderr, "moving payload, payload_len: %d, len_read: %ld header_size: %ld\n",
-            payload_len, bbmc->len_read, header_size);
         memmove(bbmc->buf_read, bbmc->buf_read + payload_len, 
             bbmc->len_read - payload_len);
 
@@ -271,8 +257,6 @@ static bb_ret fragmentation_check(struct bb_message_channel *bbmc,
 
     ret = REO_FRAGMENTED;
 
-    fprintf(stderr, "fragmentation check, header_len: %d, len_read: %ld\n", header_len, bbmc->len_read);
-
     if (header_len > bbmc->len_read)
     {
         bbmc->to_read = header_len - bbmc->len_read;
@@ -282,7 +266,6 @@ static bb_ret fragmentation_check(struct bb_message_channel *bbmc,
     memcpy(payload_len, bbmc->buf_read + PAYLOAD_LEN_OFFSET, PAYLOAD_LEN_SIZE);
     
     *payload_len += header_len;   
-fprintf(stderr, "and payload len: %d\n", *payload_len); 
     if (*payload_len > sizeof(bbmc->buf_read))
         return DEST_BUF_TOO_SMALL;
     
@@ -334,7 +317,9 @@ static bb_ret check_legacy_header(struct bb_message_channel *bbmc,
     offset += ENC_OFFSET_LEN;
     //unknown weird valeu (dd iirc)
     if (memcmp(bbmc->buf_read + offset, enc_mode_aes, sizeof(enc_mode_aes)) 
-        != 0)
+        != 0 &&
+        memcmp(bbmc->buf_read + offset, enc_mode_aes_upd, 
+        sizeof(enc_mode_aes_upd)) != 0)
     {
         return REO_ENC_WRONG;
     }
@@ -1139,7 +1124,7 @@ static void talk_write(struct bb_message_channel *bbmc)
     //sleep so we are sure that we don't end up with gibberish
     nanosleep(&ts, &ts);
 
-    //reset the timer so we now when to ping
+    //reset the timer so we know when to ping
     reo_reset_ping_timer(bbmc);
 }
 
@@ -1295,4 +1280,97 @@ void reo_init_success_cb(struct bb_message_channel *bbmc)
 
     //notify the upper layer that we succesfully opened a connection
     iv_event_raw_post(&(bbmct->init_success_ev));
+}
+
+static size_t save_snapshot(void *contents, size_t size, size_t nmemb,
+    void *object)
+{
+    size_t cur_size;
+    size_t real_size;
+
+    struct reo_session *rs;
+    struct bb_message_channel_top *bbmct;
+
+    bbmct = (struct bb_message_channel_top*)object;
+    rs = container_of(bbmct, struct reo_session, bbmct);
+    real_size = size * nmemb;
+
+    memcpy(&cur_size, bbmct->snapshot_buf, sizeof(size_t));
+    
+    if (real_size + sizeof(size_t) + cur_size > SNAPSHOT_SIZE)
+    {
+        rs->error = REO_SNAPSHOT_TOO_BIG_FOR_BUF;
+        iv_event_raw_post(&(bbmct->error_ev));
+        return 0;
+
+    }
+    cur_size += real_size;
+
+    memcpy(bbmct->snapshot_buf, &cur_size, sizeof(size_t));
+    memcpy(bbmct->snapshot_buf + sizeof(size_t) + cur_size - real_size, 
+        contents, real_size);
+
+    return real_size;
+}
+
+void reo_take_snapshot(void *object)
+{
+    char url[BUFSIZE];
+    struct bb_message_channel_top *bbmct;
+    struct bb_message_channel *bbmc;
+    struct reo_session *rs;
+    
+    CURL *curl_handle;
+    CURLcode res;
+
+    bbmc = (struct bb_message_channel*)object;
+    bbmct = (struct bb_message_channel_top*)(bbmc->bbmc_up);
+    rs = container_of(bbmct, struct reo_session, bbmct);
+    
+    memset(url, 0x00, sizeof(url));
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    if (rs->snapshot_width != 0 && rs->snapshot_height != 0)
+    {
+        if (snprintf(url, sizeof(url), 
+            "%s&user=%s&password=%s&width=%d&height=%d", rs->snapshot_url, 
+            rs->user, rs->pass, rs->snapshot_width, rs->snapshot_height) > 
+            sizeof(url))
+        {
+            rs->error = REO_SNAPSHOT_URL_TOO_LONG;
+            iv_event_raw_post(&(bbmct->error_ev));
+            return;
+        }
+    }
+    else
+    {
+        if (snprintf(url, sizeof(url), 
+            "%s&user=%s&password=%s", rs->snapshot_url, rs->user, rs->pass) > 
+            sizeof(url))
+        {
+            rs->error = REO_SNAPSHOT_URL_TOO_LONG;
+            iv_event_raw_post(&(bbmct->error_ev));
+            return;
+        }
+    }
+    curl_handle = curl_easy_init();
+
+    memset(bbmct->snapshot_buf, 0x00, SNAPSHOT_SIZE);
+    curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, save_snapshot);
+    curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, bbmct);
+    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYSTATUS, 0L);
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "bb/0.01");
+
+    if ((res = curl_easy_perform(curl_handle)) != CURLE_OK)
+    {
+        rs->error = REO_CANNOT_FETCH_SNAPSHOT;
+        iv_event_raw_post(&(bbmct->error_ev));
+        return;
+    }
+
+    //everything is ok, notify that we are done
+    iv_event_raw_post(&(bbmct->take_snapshot_success_ev));
 }
